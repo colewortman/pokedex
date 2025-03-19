@@ -7,11 +7,14 @@ import (
 	"io"
 	"encoding/json"
 	"net/http"
+	"time"
+	"github.com/colewortman/pokedex/pokecache"
 )
 
 type Config struct {
 	NextURL string
 	PrevURL string
+	Cache *pokecache.Cache
 }
 
 type LocationResponse struct {
@@ -44,17 +47,28 @@ func commandExit(cfg *Config) error {
 }
 
 func commandHelp(cfg *Config) error {
-	fmt.Println("Usage:\n\n")
+	fmt.Println("Usage:")
 	for _, cmd := range commandRegistry {
 		fmt.Printf("%s: %s\n", cmd.name, cmd.description)
 	}
 	return nil
 }
 
-func fetchLocations(url string) (*LocationResponse, error) {
+func fetchLocations(url string, cache *pokecache.Cache) (*LocationResponse, error) {
+
+	if data, found := cache.Get(url); found {
+		fmt.Println("Cache hit! Using cached data.")
+		var cachedData LocationResponse
+		if err := json.Unmarshal(data, &cachedData); err != nil {
+			return nil, fmt.Errorf("failed to parse cached JSON: %v", err)
+		}
+		return &cachedData, nil
+	}
+
+	fmt.Println("Cache miss. Fetching from API...")
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch data: %v", err)
+		return nil, fmt.Errorf("failed to fetch data: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -64,13 +78,15 @@ func fetchLocations(url string) (*LocationResponse, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read response: %v", err)
+		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
 	var data LocationResponse
 	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("Failed to parse JSON: %v", err)
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
 	}
+
+	cache.Add(url, body)
 
 	return &data, nil
 }
@@ -81,7 +97,7 @@ func commandMap(cfg *Config) error {
 		url = "https://pokeapi.co/api/v2/location-area/"
 	}
 
-	data, err := fetchLocations(url)
+	data, err := fetchLocations(url, cfg.Cache)
 	if err != nil {
 		return fmt.Errorf("Error: %v", err)
 	}
@@ -102,7 +118,7 @@ func commandMapBack(cfg *Config) error {
 		return nil
 	}
 
-	data, err := fetchLocations(cfg.PrevURL)
+	data, err := fetchLocations(cfg.PrevURL, cfg.Cache)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return nil
@@ -146,8 +162,10 @@ func init() {
 func main() {
 	fmt.Println("Welcome to the Pokedex!")
 
-	cfg := &Config{}
+	cache := pokecache.NewCache(5 * time.Minute)
+	cfg := &Config{Cache: cache}
 	scanner := bufio.NewScanner(os.Stdin)
+
 	for {
 		fmt.Print("Pokedex > ")
 
