@@ -12,13 +12,7 @@ type cliCommand struct {
 	callback	func() error
 }
 
-var commandRegistry = map[string]cliCommand{
-    "exit": {
-        name:        "exit",
-        description: "Exit the Pokedex",
-        callback:    commandExit,
-    },
-}
+var commandRegistry map[string]cliCommand
 
 func cleanInput(text string) []string {
 	lowercase := strings.ToLower(text)
@@ -33,7 +27,32 @@ func commandExit() error {
 	return nil
 }
 
+func commandHelp() error {
+	fmt.Println("Usage:\n\n")
+	for _, cmd := range commandRegistry {
+		fmt.Printf("%s: %s\n", cmd.name, cmd.description)
+	}
+	return nil
+}
+
+func init() {
+	commandRegistry = map[string]cliCommand{
+		"help": {
+			name: "help",
+			description: "Displays a help message",
+			callback: commandHelp,
+		},
+		"exit": {
+			name:        "exit",
+			description: "Exit the Pokedex",
+			callback:    commandExit,
+		},
+	}
+}
+
 func main() {
+	fmt.Println("Welcome to the Pokedex!")
+
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("Pokedex > ")
@@ -45,7 +64,7 @@ func main() {
 			}
 
 			command := args[0]
-			
+
 			if cmd, found := commandRegistry[command]; found {
 				if err := cmd.callback(); err != nil {
 					fmt.Println("Error:", err)
