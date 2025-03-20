@@ -20,8 +20,29 @@ type Config struct {
 }
 
 type Pokemon struct {
-	Name		string
-	BaseExperience int `json:"base_experience"`
+	Name		string	`json:"name"`
+	Height		int		`json:"height"`
+	Weight		int		`json:"weight"`
+	BaseExperience int  `json:"base_experience"`
+	Stats		[]Stat	`json:"stats"`
+	Types		[]Type	`json:"types"`
+}
+
+type Stat struct {
+	Stat StatDetail `json:"stat"`
+	Base int		`json:"base_stat"`
+}
+
+type StatDetail struct {
+	Name string `json:"name"`
+}
+
+type Type struct {
+	Type TypeDetail `json:"type"`
+}
+
+type TypeDetail struct {
+	Name string `json:"name"`
 }
 
 type LocationResponse struct {
@@ -209,7 +230,7 @@ func commandCatch(cfg *Config, args []string) error {
 	fmt.Printf("Throwing a Pokeball at %s...\n", pokemonName)
 
 	if _, exists := cfg.Pokedex[pokemonName]; exists {
-		fmt.Printf("You already caught %s!", pokemonName)
+		fmt.Printf("You already caught %s!\n", pokemonName)
 		return nil
 	}
 
@@ -250,8 +271,54 @@ func attemptCatch(cfg *Config, data []byte, pokemonName string) error {
 	if rand.Float64() < catchChance {
 		fmt.Printf("%s was caught!\n", pokemonName)
 		cfg.Pokedex[pokemonName] = pokemon
+		fmt.Println("You may now inspect it with the inspect command.")
 	} else {
 		fmt.Printf("%s escaped!\n", pokemonName)
+	}
+	return nil
+}
+
+func commandInspect(cfg *Config, args []string) error {
+	if len(args) != 1 {
+		fmt.Println("Usage: inspect <pokemon>")
+		return nil
+	}
+
+	pokemonName := args[0]
+
+	pokemon, exists := cfg.Pokedex[pokemonName]
+	if !exists {
+		fmt.Println("You have not caught that Pokemon")
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", pokemon.Name)
+	fmt.Printf("Height: %d\n", pokemon.Height)
+	fmt.Printf("Weight: %d\n", pokemon.Weight)
+
+	fmt.Println("Stats:")
+	for _, stat := range pokemon.Stats {
+		fmt.Printf("\t-%s: %d\n", stat.Stat.Name, stat.Base)
+	}
+
+	fmt.Println("Types:")
+	for _, t := range pokemon.Types {
+		fmt.Printf("\t-%s\n", t.Type.Name)
+	}
+
+	return nil
+}
+
+func commandPokedex(cfg *Config, args []string) error {
+	fmt.Println("Your Pokedex:")
+
+	if len(cfg.Pokedex) == 0 {
+		fmt.Println("You have not caught any Pokemon yet.")
+		return nil
+	}
+
+	for _, pokemon := range cfg.Pokedex {
+		fmt.Printf("\t-%s\n", pokemon.Name)
 	}
 	return nil
 }
@@ -291,7 +358,12 @@ func init() {
 		"inspect": {
 			name: 		 "inspect",
 			description: "Display info for a given caught Pokemon",
-			callback: commandCatch,
+			callback: commandInspect,
+		},
+		"pokedex": {
+			name: 		 "pokedex",
+			description: "Display your Pokedex",
+			callback: commandPokedex,
 		},
 	}
 }
