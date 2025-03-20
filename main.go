@@ -9,12 +9,19 @@ import (
 	"net/http"
 	"time"
 	"github.com/colewortman/pokedex/pokecache"
+	"math/rand"
 )
 
 type Config struct {
 	NextURL string
 	PrevURL string
 	Cache *pokecache.Cache
+	Pokedex map[string]Pokemon
+}
+
+type Pokemon struct {
+	Name		string
+	BaseExperience int `json:"base_experience"`
 }
 
 type LocationResponse struct {
@@ -65,7 +72,6 @@ func fetchLocations(url string, cache *pokecache.Cache) (*LocationResponse, erro
 		return &cachedData, nil
 	}
 
-	fmt.Println("Cache miss. Fetching from API...")
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data: %v", err)
@@ -159,7 +165,7 @@ func commandExplore(cfg *Config, args []string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API error: %v", resp.Status)
+		return fmt.Errorf("Location not found")
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -193,10 +199,67 @@ func printPokemonFromData(data []byte) {
 	}
 }
 
+func commandCatch(cfg *Config, args []string) error {
+	if len(args) != 1 {
+		fmt.Println("Usage: catch <pokemon>")
+		return nil
+	}
+
+	pokemonName := args[0]
+	fmt.Printf("Throwing a Pokeball at %s...\n", pokemonName)
+
+	if _, exists := cfg.Pokedex[pokemonName]; exists {
+		fmt.Printf("You already caught %s!", pokemonName)
+		return nil
+	}
+
+	cacheKey := fmt.Sprintf("pokemon:%s", pokemonName)
+	if data, found := cfg.Cache.Get(cacheKey); found {
+		return attemptCatch(cfg, data, pokemonName)
+	}
+
+	url := fmt.Sprintf("https://pokeapi.co/api/v2/pokemon/%s", pokemonName)
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("Failed to catch Pokemon data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Pokemon not found")
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("Failed to read response: %v", err)
+	}
+
+	cfg.Cache.Add(cacheKey, body)
+	return attemptCatch(cfg, body, pokemonName)
+}
+
+func attemptCatch(cfg *Config, data []byte, pokemonName string) error {
+	var pokemon Pokemon
+	if err := json.Unmarshal(data, &pokemon); err != nil {
+		fmt.Println("Error parsing Pokémon data:", err)
+		return nil
+	}
+
+	catchChance := 1.0 / (1.0 + float64(pokemon.BaseExperience)/100.0)
+	rand.Seed(time.Now().UnixNano())
+	if rand.Float64() < catchChance {
+		fmt.Printf("%s was caught!\n", pokemonName)
+		cfg.Pokedex[pokemonName] = pokemon
+	} else {
+		fmt.Printf("%s escaped!\n", pokemonName)
+	}
+	return nil
+}
+
 func init() {
 	commandRegistry = map[string]cliCommand{
 		"help": {
-			name: "help",
+			name: 		 "help",
 			description: "Displays a help message",
 			callback: commandHelp,
 		},
@@ -206,19 +269,29 @@ func init() {
 			callback:    commandExit,
 		},
 		"map": {
-			name: "map",
+			name: 		 "map",
 			description: "Display the next 20 map locations",
 			callback: commandMap,
 		},
 		"mapb": {
-			name: "mapb",
+			name: 		 "mapb",
 			description: "Display the previous 20 map locations",
 			callback: commandMapBack,
 		},
 		"explore": {
-			name: "explore",
+			name: 		 "explore",
 			description: "Display the pokemon in a given location",
 			callback: commandExplore,
+		},
+		"catch": {
+			name: 		 "catch",
+			description: "Attempt to catch and store a given Pokemon in the Pokedex",
+			callback: commandCatch,
+		},
+		"inspect": {
+			name: 		 "inspect",
+			description: "Display info for a given caught Pokemon",
+			callback: commandCatch,
 		},
 	}
 }
@@ -227,7 +300,10 @@ func main() {
 	fmt.Println("Welcome to the Pokedex!")
 
 	var cache = pokecache.NewCache(5 * time.Minute)
-	cfg := &Config{Cache: cache}
+	cfg := &Config{
+		Cache: cache,
+		Pokedex: make(map[string]Pokemon),
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
